@@ -207,11 +207,206 @@
     })();
 
     (function() {
+        function IGNORE_TOKEN(name, string, precedence) {}
+
+        
+        function BINARY_OP_TOKEN_LIST(T, E) {
+            E(T, "BIT_OR", "|", 6);
+            E(T, "BIT_XOR", "^", 7);
+            E(T, "BIT_AND", "&", 8);
+            E(T, "SHL", "<<", 11);
+            E(T, "SAR", ">>", 11);
+            E(T, "SHR", ">>>", 11);
+            E(T, "MUL", "*", 13);
+            E(T, "DIV", "/", 13);
+            E(T, "MOD", "%", 13);
+            E(T, "EXP", "**", 14);
+            E(T, "ADD", "+", 12);
+            E(T, "SUB", "-", 12);
+        }
+
+        function EXPAND_BINOP_ASSIGN_TOKEN(T, name, string, precedence) {
+            T("ASSIGN_"+name, string, "=", 2);
+        }
+
+        function EXPAND_BINOP_TOKEN(T, name, string, precedence) {
+            T(name, string, precedence)
+        }
+
+        function TOKEN_LIST(T,K) {
+            T("TEMPLATE_SPAN", null, 0);
+            T("TEMPLATE_TAIL", null, 0);
+
+            T("PERIOD", ".", 0);
+            T("LBRACK", "[", 0);
+
+            T("QUESTION_PERIOD", "?.", 0);
+            T("LPAREN", "(", 0);
+
+            T("RPAREN", ")", 0);
+            T("RBRACK", "]", 0);
+            T("LBRACE", "{", 0);
+            T("COLON", ":", 0);
+            T("ELLIPSIS", "...", 0);
+            T("CONDITIONAL", "?", 3);
+
+            T("SEMICOLON", ";", 0);
+            T("RBRACE", "}", 0);
+
+            T("EOS", "EOS", 0);
+
+
+
+            T("ARROW", "=>", 0);
+
+            T("INIT", "=init", 2);
+            T("ASSIGN", "=", 2);
+
+            BINARY_OP_TOKEN_LIST(T, EXPAND_BINOP_ASSIGN_TOKEN);
+
+            T("COMMA", ",", 1);
+            T("NULLISH", "??", 3);
+            T("OR", "||", 4);
+            T("AND", "&&", 5);
+
+            BINARY_OP_TOKEN_LIST(T, EXPAND_BINOP_TOKEN);
+
+            T("NOT", "!", 0);
+            T("BIT_NOT", "~", 0);
+            K("DELETE", "delete", 0);
+            K("TYPEOF", "typeof", 0);
+            K("VOID", "void", 0);
+
+            T("INC", "++", 0);
+            T("DEC", "--", 0);
+
+            T("EQ", "==", 9);
+            T("EQ_STRICT", "===", 9);
+            T("NE", "!=", 9);
+            T("NE_STRICT", "!==", 9);
+            T("LT", "<", 10);
+            T("GT", ">", 10);
+            T("LTE", "<=", 10);
+            T("GTE", ">=", 10);
+            K("INSTANCEOF", "instanceof", 10);
+            K("IN", "in", 10);
+
+            K("BREAK", "break", 0);
+            K("CASE", "case", 0);
+            K("CATCH", "catch", 0);
+            K("CONTINUE", "continue", 0);
+            K("DEBUGGER", "debugger", 0);
+            K("DEFAULT", "default", 0);
+            
+            K("DO", "do", 0);
+            K("ELSE", "else", 0);
+            K("FINALLY", "finally", 0);
+            K("FOR", "for", 0);
+            K("FUNCTION", "function", 0);
+            K("IF", "if", 0);
+
+            K("NEW", "new", 0);
+            K("RETURN", "return", 0);
+            K("SWITCH", "switch", 0);
+            K("THROW", "throw", 0);
+            K("TRY", "try", 0);
+
+            K("VAR", "var", 0);
+            
+            K("WHILE", "while", 0);
+            K("WITH", "with", 0);
+            K("THIS", "this", 0);
+
+            K("NULL_LITERAL", "null", 0);
+            K("TRUE_LITERAL", "true", 0);
+            K("FALSE_LITERAL", "false", 0);
+            T("NUMBER", null, 0);
+            T("SMI", null, 0);
+            T("BIGINT", null, 0);
+            T("STRING", null, 0);
+
+            K("SUPER", "super", 0);
+
+            T("IDENTIFIER", null, 0);
+            K("GET", "get", 0);
+            K("SET", "set", 0);
+            K("ASYNC", "async", 0);
+            
+            K("AWAIT", "await", 0);
+            K("YIELD", "yield", 0);
+            K("LET", "let", 0);
+            K("STATIC", "static", 0);
+
+            T("FUTURE_STRICT_RESERVED_WORD", null, 0);
+            T("ESCAPED_STRICT_RESERVED_WORD", null, 0);
+            
+            K("ENUM", "enum", 0);
+            K("CLASS", "class", 0);
+            K("CONST", "const", 0);
+            K("EXPORT", "export", 0);
+            K("EXTENDS", "extends", 0);
+            K("IMPORT", "import", 0);
+            T("PRIVATE_NAME", null, 0);
+
+            T("ILLEGAL", "ILLEGAL", 0);
+            T("ESCAPED_KEYWORD", null, 0);
+                                                                           
+            T("WHITESPACE", null, 0);
+            T("UNINITIALIZED", null, 0);
+            T("REGEXP_LITERAL", null, 0);
+        }
+
+        function Token() {
+            
+        }
+
+        var token_value = 0;
+
+        function T(name, string, precedence) {
+            Token[name] = token_value++;
+        }
+
+        TOKEN_LIST(T,T);
+
+        v8.internal.Token = Token;
+    })();
+
+    (function() {
+        var Token = v8.internal.Token;
+
+        function IsInRange(val, min, max) {
+            return val >= min && val <= max;
+        }
+
+        function TokenDesc() {
+            this.location = new Location(0,0);
+            this.literal_chars = undefined;
+            this.raw_literal_chars = undefined;
+            this.token = Token.UNINITIALIZED;
+            this.invalid_template_escape_message = undefined;
+            this.invalid_template_escape_location = undefined;
+            this.smi_value = 0;
+            this.after_line_terminator = false;
+
+            this.CanAccessLiteral = function() {
+                return token == Token.PRIVATE_NAME || token == Token.ILLEGAL ||
+                    token == Token.UNINITIALIZED || token == Token.REGEXP_LITERAL ||
+                    IsInRange(token, Token.NUMBER, Token.STRING) ||
+                    Token.IsAnyIdentifier(token) || Token.IsKeyword(token) ||
+                    IsInRange(token, Token.TEMPLATE_SPAN, Token.TEMPLATE_TAIL);
+            };
+
+            this.CanAccessRawLiteral = function() {
+                return token == Token.ILLEGAL || token == Token.UNINITIALIZED ||
+                    IsInRange(token, Token.TEMPLATE_SPAN, Token.TEMPLATE_TAIL);
+            }
+        }
+
         function Scanner(source, is_module) {
             this.source_ = source;
             this.is_module_ = is_module;
             this.c0_ = -1;
-            this.token_storage = new Array(3);
+            this.token_storage = [new TokenDesc(),new TokenDesc(),new TokenDesc()];
             this.found_html_comment = false;
 
             this.current_ = undefined;
@@ -240,9 +435,9 @@
 
         Scanner.prototype.Init = function() {
             this.Advance();
-            this.current_ = 0;
-            this.next_ = 1;
-            this.next_next_ = 2;
+            this.current_ = token_storage[0];
+            this.next_ = token_storage[1];
+            this.next_next_ = token_storage[3];
             this.found_html_comment = false;
             this.scanner_error = MessageTemplate.kNone;
         }
@@ -257,7 +452,17 @@
 
         Scanner.prototype.Initialize = function() {
             this.Init();
-        }
+            this.next().after_line_terminator = true;
+            this.Scan();
+        };
+        Scanner.prototype.Scan = function(next_desc) {
+            if(arguments.length==0) {
+                Scan(this.next_);
+            }
+            else {
+                
+            }
+        };
 
         Scanner.prototype.Next = function() {
 
@@ -274,6 +479,16 @@
         Scanner.prototype.peek = function() {
 
         }
+
+        Scanner.prototype.current = function() {
+            return this.current_;
+        };
+        Scanner.prototype.next = function() {
+            return this.next_;
+        };
+        Scanner.prototype.next_next() {
+            return this.next_next_;
+        };
 
         v8.internal.Scanner = Scanner;
     })();
