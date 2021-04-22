@@ -373,10 +373,100 @@
 
     (function() {
         var Token = v8.internal.Token;
+        var MessageTemplate = v8.internal.MessageTemplate;
 
-        function IsInRange(val, min, max) {
-            return val >= min && val <= max;
+        function make_unsigned(a) {
+            return a >>> 0;
         }
+
+        function IsInRange(value, lower_limit, higher_limit) {
+            return make_unsigned(make_unsigned(value) - make_unsigned(lower_limit))
+                 <= make_unsigned(make_unsigned(higher_limit) - make_unsigned(lower_limit));
+        }
+
+        function AsciiAlphaToLower(c) {
+            return c | 0x20;
+        }
+
+        function IsDecimalDigit(c) {
+            return IsInRange(c, '0'.charCodeAt(),'9'.charCodeAt());
+        }
+
+        function IsAlphaNumeric(c) {
+            return IsInRange(AsciiAlphaToLower(c),'a'.charCodeAt(),'z'.charCodeAt()) || IsDecimalDigit(c);
+        }
+
+        function IsAsciiIdentifier(c) {
+            return IsAlphaNumeric(c) || c == '$' || c == '_';
+        }
+
+        
+
+        var one_char_tokens = v8.internal.one_char_tokens = new Array(128);
+
+        function GetOneCharToken(c) {
+            return c == '('.charCodeAt() ? Token.LPAREN :
+                c == ')'.charCodeAt() ? Token.RPAREN :
+                c == '{'.charCodeAt() ? Token.LBRACE :
+                c == '}'.charCodeAt() ? Token.RBRACE :
+                c == '['.charCodeAt() ? Token.LBRACK :
+                c == ']'.charCodeAt() ? Token.RBRACK :
+                c == '?'.charCodeAt() ? Token.CONDITIONAL :
+                c == ':'.charCodeAt() ? Token.COLON :
+                c == ';'.charCodeAt() ? Token.SEMICOLON :
+                c == ','.charCodeAt() ? Token.COMMA :
+                c == '.'.charCodeAt() ? Token.PERIOD :
+                c == '|'.charCodeAt() ? Token.BIT_OR :
+                c == '&'.charCodeAt() ? Token.BIT_AND :
+                c == '^'.charCodeAt() ? Token.BIT_XOR :
+                c == '~'.charCodeAt() ? Token.BIT_NOT :
+                c == '!'.charCodeAt() ? Token.NOT :
+                c == '<'.charCodeAt() ? Token.LT :
+                c == '>'.charCodeAt() ? Token.GT :
+                c == '%'.charCodeAt() ? Token.MOD :
+                c == '='.charCodeAt() ? Token.ASSIGN :
+                c == '+'.charCodeAt() ? Token.ADD :
+                c == '-'.charCodeAt() ? Token.SUB :
+                c == '*'.charCodeAt() ? Token.MUL :
+                c == '/'.charCodeAt() ? Token.DIV :
+                c == '#'.charCodeAt() ? Token.PRIVATE_NAME :
+                c == '"'.charCodeAt() ? Token.STRING :
+                c == '\''.charCodeAt() ? Token.STRING :
+                c == '`'.charCodeAt() ? Token.TEMPLATE_SPAN :
+                c == '\\'.charCodeAt() ? Token.IDENTIFIER :
+                
+                c == ' '.charCodeAt() ? Token.WHITESPACE :
+                c == '\t'.charCodeAt() ? Token.WHITESPACE :
+                c == '\v'.charCodeAt() ? Token.WHITESPACE :
+                c == '\f'.charCodeAt() ? Token.WHITESPACE :
+                c == '\r'.charCodeAt() ? Token.WHITESPACE :
+                c == '\n'.charCodeAt() ? Token.WHITESPACE :
+                
+                IsDecimalDigit(c) ? Token.NUMBER :
+                IsAsciiIdentifier(c) ? Token.IDENTIFIER :
+                Token.ILLEGAL;
+        }
+
+        function CALL_GET_SCAN_FLAGS(N) {
+            one_char_tokens[N] = GetOneCharToken(N);
+        }
+
+        function INT_0_TO_127_LIST(V) {
+            V(0),V(1),V(2),V(3),V(4),V(5),V(6),V(7),V(8),V(9),
+            V(10),V(11),V(12),V(13),V(14),V(15),V(16),V(17),V(18),V(19),
+            V(20),V(21),V(22),V(23),V(24),V(25),V(26),V(27),V(28),V(29),
+            V(30),V(31),V(32),V(33),V(34),V(35),V(36),V(37),V(38),V(39),
+            V(40),V(41),V(42),V(43),V(44),V(45),V(46),V(47),V(48),V(49),
+            V(50),V(51),V(52),V(53),V(54),V(55),V(56),V(57),V(58),V(59),
+            V(60),V(61),V(62),V(63),V(64),V(65),V(66),V(67),V(68),V(69),
+            V(70),V(71),V(72),V(73),V(74),V(75),V(76),V(77),V(78),V(79),
+            V(80),V(81),V(82),V(83),V(84),V(85),V(86),V(87),V(88),V(89),
+            V(90),V(1),V(92),V(93),V(94),V(95),V(96),V(97),V(98),V(99),
+            V(100),V(101),V(102),V(103),V(104),V(105),V(106),V(107),V(108),V(109);
+            V(120),V(121),V(122),V(123),V(124),V(125),V(126),V(127);
+        }
+
+        INT_0_TO_127_LIST(CALL_GET_SCAN_FLAGS);
 
         function TokenDesc() {
             this.location = new Location(0,0);
@@ -420,6 +510,9 @@
             this.octal_message_ = MessageTemplate.kNone;
         }
 
+        var kCharacterLookaheadBufferSize = Scanner.kCharacterLookaheadBufferSize = 1;
+        var kMaxAscii = Scanner.kMaxAscii = 127;
+
         function Location(b, e) {
             this.beg_pos = b;
             this.end_pos = e;
@@ -435,9 +528,9 @@
 
         Scanner.prototype.Init = function() {
             this.Advance();
-            this.current_ = token_storage[0];
-            this.next_ = token_storage[1];
-            this.next_next_ = token_storage[3];
+            this.current_ = this.token_storage[0];
+            this.next_ = this.token_storage[1];
+            this.next_next_ = this.token_storage[3];
             this.found_html_comment = false;
             this.scanner_error = MessageTemplate.kNone;
         }
@@ -457,15 +550,31 @@
         };
         Scanner.prototype.Scan = function(next_desc) {
             if(arguments.length==0) {
-                Scan(this.next_);
+                this.Scan(this.next_);
+                return;
             }
-            else {
-                
-            }
+
+            next_desc.token = this.ScanSingleToken();
+            next_desc.location.end_pos = this.source_pos();
         };
 
         Scanner.prototype.Next = function() {
+            // Rotate through tokens.
+            var previous = this.current_;
+            this.current_ = this.next_;
 
+            if (this.next_next().token == Token.UNINITIALIZED) {
+                this.next_ = previous;
+                // User 'previous' instead of 'next_' because for some reason the compiler
+                // thinks 'next_' could be modified before the entry into Scan.
+                previous.after_line_terminator = false;
+                this.Scan(previous);
+            } else {
+                this.next_ = this.next_next_;
+                this.next_next_ = previous;
+                previous.token = Token.UNINITIALIZED;
+            }
+            return current().token;
         }
 
         Scanner.prototype.PeekAhead = function() {
@@ -486,9 +595,71 @@
         Scanner.prototype.next = function() {
             return this.next_;
         };
-        Scanner.prototype.next_next() {
+        Scanner.prototype.next_next = function() {
             return this.next_next_;
         };
+
+        Scanner.prototype.ScanSingleToken = function() {
+            var token;
+
+            do {
+                this.next().location.beg_pos = this.source_pos();
+
+                if(this.c0_ <= kMaxAscii) {
+                    token = one_char_tokens[this.c0_];
+
+                    switch(token) {
+                        case Token.LPAREN:
+                        case Token.RPAREN:
+                        case Token.LBRACE:
+                        case Token.RBRACE:
+                        case Token.LBRACK:
+                        case Token.RBRACK:
+                        case Token.COLON:
+                        case Token.SEMICOLON:
+                        case Token.COMMA:
+                        case Token.BIT_NOT:
+                        case Token.ILLEGAL:
+                            return this.Select(token);
+                        case Token.CONDITIONAL:
+                            // ? ?. ??
+                            this.Advance();
+                            if (this.allow_harmony_optional_chaining() && this.c0_ == '.'.charCodeAt()) {
+                                this.Advance();
+                                if (!IsDecimalDigit(c0_)) return Token.QUESTION_PERIOD;
+                                this.PushBack('.'.charCodeAt());
+                            } else if (this.allow_harmony_nullish() && this.c0_ == '?'.charCodeAt()) {
+                                return this.Select(Token.NULLISH);
+                            }
+                            return Token.CONDITIONAL;
+                            
+                        case Token.STRING:
+                            return ScanString();
+                    }
+                }
+
+            } while(token == Token.WHITESPACE);
+        }
+
+        Scanner.prototype.source_pos = function() {
+            return this.source_.pos() - kCharacterLookaheadBufferSize;
+        }
+
+        Scanner.prototype.Select = function(tokOrNext, then, else_) {
+            if(arguments.length == 1) {
+                this.Advance();
+                return tokOrNext;
+            }
+        }
+
+        Scanner.prototype.allow_harmony_optional_chaining = function() {
+            return this.allow_harmony_optional_chaining_;
+        }
+
+        Scanner.prototype.PushBack = function(ch) {
+            this.source_.Back();
+            this.c0_ = ch;
+        }
 
         v8.internal.Scanner = Scanner;
     })();
